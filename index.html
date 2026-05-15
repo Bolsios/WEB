@@ -1,15 +1,144 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TechSecure Pro — Sistema de Gestión Mayorista</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZKTeco Precision Decoder</title>
+    <style>
+        :root {
+            --bg: #08111b;
+            --card: #101c2b;
+            --accent: #00e5c3;
+            --accent2: #00a8ff;
+            --text: #dcefff;
+            --muted: #6d8aa0;
+            --border: rgba(0, 229, 195, .2);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; padding: 20px; }
+        .container { max-width: 1100px; margin: auto; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+        .dropzone { border: 2px dashed var(--accent); padding: 40px; text-align: center; border-radius: 12px; cursor: pointer; transition: 0.3s; }
+        .dropzone:hover { background: rgba(0, 229, 195, 0.05); }
+        .btn { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #00131d; border: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; }
+        .btn:disabled { opacity: 0.3; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; background: rgba(0,0,0,0.2); }
+        th { background: #162636; color: var(--accent); text-align: left; padding: 12px; border-bottom: 2px solid var(--border); }
+        td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); font-family: 'Consolas', monospace; }
+        .log { background: #040a0f; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 12px; height: 150px; overflow-y: auto; color: #00d68f; border: 1px solid #1a2a3a; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="card">
+        <h2>ZKTeco Binary Parser (Corrección de ID)</h2>
+        <p style="color: var(--muted); margin-bottom: 15px;">Extracción precisa ignorando caracteres nulos y desplazamientos.</p>
+        <div class="dropzone" id="dropzone">
+            <h3>Arrastra tu archivo .u aquí</h3>
+            <input type="file" id="fileInput" hidden>
+        </div>
+    </div>
+
+    <div class="card">
+        <h4>Consola de Eventos</h4>
+        <div class="log" id="log"></div>
+    </div>
+
+    <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3>Registros Extraídos</h3>
+            <button class="btn" id="csvBtn" disabled>Exportar CSV</button>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Referencia (Nombre)</th>
+                    <th>Contraseña (Valor Numérico)</th>
+                </tr>
+            </thead>
+            <tbody id="dataTable"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    const App = { records: [] };
+    const logEl = document.getElementById('log');
+    const dataTable = document.getElementById('dataTable');
+
+    function log(msg) {
+        const d = document.createElement('div');
+        d.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        logEl.appendChild(d);
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    document.getElementById('dropzone').onclick = () => document.getElementById('fileInput').click();
+
+    document.getElementById('fileInput').onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        log(`Procesando: ${file.name}`);
+        const buffer = await file.arrayBuffer();
+        const data = new Uint8Array(buffer);
+        
+        // Decodificamos el archivo ignorando errores de caracteres no-UTF8
+        const text = new TextDecoder('ascii').decode(data);
+        
+        /* NUEVA LÓGICA DE EXTRACCIÓN:
+           Buscamos el patrón: [ID] [Espacios/Nulos] [Contraseña] [Espacios/Nulos] [Referencia]
+           Usamos un regex que limpia los caracteres no imprimibles.
+        */
+        const cleanedText = text.replace(/[^\x20-\x7E]/g, ' '); // Reemplaza nulos por espacios
+        
+        // Buscamos grupos de: número (ID), número (Pass), texto (Ref)
+        // El regex busca secuencias de dígitos y luego texto, saltando cualquier espacio intermedio.
+        const regex = /(\d+)\s+(\d+)\s+([A-Za-z]+)/g;
+        let match;
+        const records = [];
+
+        while ((match = regex.exec(cleanedText)) !== null) {
+            records.push({
+                id: match[1],
+                password: match[2],
+                reference: match[3]
+            });
+        }
+
+        App.records = records;
+        renderTable(records);
+        
+        if (records.length > 0) {
+            document.getElementById('csvBtn').disabled = false;
+            log(`Éxito: Se encontraron ${records.length} registros.`);
+        } else {
+            log("Error: No se pudo interpretar el formato.");
+        }
+    };
+
+    function renderTable(data) {
+        dataTable.innerHTML = data.map(r => `
+            <tr>
+                <td>${r.id}</td>
+                <td>${r.reference}</td>
+                <td>${r.password}</td>
+            </tr>
+        `).join('');
+    }
+
+    document.getElementById('csvBtn').onclick = () => {
+        const csv = "ID,Referencia,Contraseña\n" + 
+            App.records.map(r => `${r.id},${r.reference},${r.password}`).join("\n");
+        const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = "usuarios_zkteco.csv";
+        a.click();
+    };
+</script>
+</body>
 </html>
