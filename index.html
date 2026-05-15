@@ -20,8 +20,9 @@
         .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
         .dropzone { border: 2px dashed var(--accent); padding: 40px; text-align: center; border-radius: 12px; cursor: pointer; transition: 0.3s; }
         .dropzone:hover { background: rgba(0, 229, 195, 0.05); }
-        .btn { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #00131d; border: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; }
-        .btn:disabled { opacity: 0.3; }
+        .btn { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #00131d; border: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-left: 5px; }
+        .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .btn.secondary { background: #17283b; color: var(--text); border: 1px solid var(--border); }
         table { width: 100%; border-collapse: collapse; margin-top: 15px; background: rgba(0,0,0,0.2); }
         th { background: #162636; color: var(--accent); text-align: left; padding: 12px; border-bottom: 2px solid var(--border); }
         td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); font-family: 'Consolas', monospace; }
@@ -48,7 +49,10 @@
     <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <h3>Registros Extraídos</h3>
-            <button class="btn" id="csvBtn" disabled>Exportar CSV</button>
+            <div>
+                <button class="btn secondary" id="csvBtn" disabled>Exportar CSV</button>
+                <button class="btn" id="xlsBtn" disabled>Exportar Excel</button>
+            </div>
         </div>
         <table>
             <thead>
@@ -85,17 +89,9 @@
         const buffer = await file.arrayBuffer();
         const data = new Uint8Array(buffer);
         
-        // Decodificamos el archivo ignorando errores de caracteres no-UTF8
         const text = new TextDecoder('ascii').decode(data);
+        const cleanedText = text.replace(/[^\x20-\x7E]/g, ' '); 
         
-        /* NUEVA LÓGICA DE EXTRACCIÓN:
-           Buscamos el patrón: [ID] [Espacios/Nulos] [Contraseña] [Espacios/Nulos] [Referencia]
-           Usamos un regex que limpia los caracteres no imprimibles.
-        */
-        const cleanedText = text.replace(/[^\x20-\x7E]/g, ' '); // Reemplaza nulos por espacios
-        
-        // Buscamos grupos de: número (ID), número (Pass), texto (Ref)
-        // El regex busca secuencias de dígitos y luego texto, saltando cualquier espacio intermedio.
         const regex = /(\d+)\s+(\d+)\s+([A-Za-z]+)/g;
         let match;
         const records = [];
@@ -113,6 +109,7 @@
         
         if (records.length > 0) {
             document.getElementById('csvBtn').disabled = false;
+            document.getElementById('xlsBtn').disabled = false;
             log(`Éxito: Se encontraron ${records.length} registros.`);
         } else {
             log("Error: No se pudo interpretar el formato.");
@@ -129,16 +126,45 @@
         `).join('');
     }
 
+    // Exportar a CSV
     document.getElementById('csvBtn').onclick = () => {
         const csv = "ID,Referencia,Contraseña\n" + 
             App.records.map(r => `${r.id},${r.reference},${r.password}`).join("\n");
         const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8' });
+        saveFile(blob, "usuarios_zkteco.csv");
+    };
+
+    // Exportar a Excel (XLS)
+    document.getElementById('xlsBtn').onclick = () => {
+        let xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Worksheet ss:Name="ZKTeco">
+<Table>
+<Row><Cell><Data ss:Type="String">ID</Data></Cell><Cell><Data ss:Type="String">Referencia</Data></Cell><Cell><Data ss:Type="String">Contraseña</Data></Cell></Row>`;
+
+        App.records.forEach(r => {
+            xml += `<Row>
+<Cell><Data ss:Type="Number">${r.id}</Data></Cell>
+<Cell><Data ss:Type="String">${r.reference}</Data></Cell>
+<Cell><Data ss:Type="String">${r.password}</Data></Cell>
+</Row>`;
+        });
+
+        xml += `</Table></Worksheet></Workbook>`;
+
+        const blob = new Blob([xml], { type: 'application/vnd.ms-excel' });
+        saveFile(blob, "usuarios_zkteco.xls");
+        log("Archivo Excel generado correctamente.");
+    };
+
+    function saveFile(blob, filename) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = "usuarios_zkteco.csv";
+        a.download = filename;
         a.click();
-    };
+        setTimeout(() => URL.revokeObjectURL(url), 100);
+    }
 </script>
 </body>
 </html>
