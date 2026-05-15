@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZKTeco Precision Decoder</title>
+    <title>ZKTeco Precision Decoder v2</title>
     <style>
         :root {
             --bg: #08111b;
@@ -27,14 +27,15 @@
         th { background: #162636; color: var(--accent); text-align: left; padding: 12px; border-bottom: 2px solid var(--border); }
         td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); font-family: 'Consolas', monospace; }
         .log { background: #040a0f; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 12px; height: 150px; overflow-y: auto; color: #00d68f; border: 1px solid #1a2a3a; }
+        .no-pass { color: #ff5f6d; font-style: italic; font-size: 11px; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <div class="card">
-        <h2>ZKTeco Binary Parser (Corrección de ID)</h2>
-        <p style="color: var(--muted); margin-bottom: 15px;">Extracción precisa ignorando caracteres nulos y desplazamientos.</p>
+        <h2>ZKTeco Binary Parser (Soporte Sin Contraseña)</h2>
+        <p style="color: var(--muted); margin-bottom: 15px;">Detección inteligente de IDs, Nombres y Contraseñas opcionales.</p>
         <div class="dropzone" id="dropzone">
             <h3>Arrastra tu archivo .u aquí</h3>
             <input type="file" id="fileInput" hidden>
@@ -59,7 +60,7 @@
                 <tr>
                     <th>ID</th>
                     <th>Referencia (Nombre)</th>
-                    <th>Contraseña (Valor Numérico)</th>
+                    <th>Contraseña</th>
                 </tr>
             </thead>
             <tbody id="dataTable"></tbody>
@@ -85,23 +86,39 @@
         const file = e.target.files[0];
         if (!file) return;
 
-        log(`Procesando: ${file.name}`);
+        log(`Analizando binario: ${file.name}`);
         const buffer = await file.arrayBuffer();
         const data = new Uint8Array(buffer);
         
+        // Decodificamos permitiendo ver los caracteres nulos como espacios
         const text = new TextDecoder('ascii').decode(data);
-        const cleanedText = text.replace(/[^\x20-\x7E]/g, ' '); 
+        const cleanedText = text.replace(/[^\x20-\x7E]/g, ' ').replace(/\s+/g, ' '); 
         
-        const regex = /(\d+)\s+(\d+)\s+([A-Za-z]+)/g;
+        /* REGEX MEJORADO: 
+           Busca un número (ID), 
+           seguido OPCIONALMENTE de otro número (Password), 
+           seguido de una palabra (Nombre).
+        */
+        const regex = /(\d+)\s+(\d+)?\s*([A-Za-záéíóúÁÉÍÓÚñÑ]+)/g;
         let match;
         const records = [];
 
         while ((match = regex.exec(cleanedText)) !== null) {
-            records.push({
-                id: match[1],
-                password: match[2],
-                reference: match[3]
-            });
+            let id, password, reference;
+
+            // Si el segundo grupo capturado existe, es la contraseña. 
+            // Si no, el primer grupo es el ID y el tercero el nombre.
+            if (match[2]) {
+                id = match[1];
+                password = match[2];
+                reference = match[3];
+            } else {
+                id = match[1];
+                password = ""; // No posee contraseña
+                reference = match[3];
+            }
+
+            records.push({ id, reference, password });
         }
 
         App.records = records;
@@ -110,9 +127,9 @@
         if (records.length > 0) {
             document.getElementById('csvBtn').disabled = false;
             document.getElementById('xlsBtn').disabled = false;
-            log(`Éxito: Se encontraron ${records.length} registros.`);
+            log(`Éxito: Se procesaron ${records.length} usuarios.`);
         } else {
-            log("Error: No se pudo interpretar el formato.");
+            log("Error: No se detectó el patrón de datos.");
         }
     };
 
@@ -121,12 +138,11 @@
             <tr>
                 <td>${r.id}</td>
                 <td>${r.reference}</td>
-                <td>${r.password}</td>
+                <td>${r.password ? r.password : '<span class="no-pass">(Sin contraseña)</span>'}</td>
             </tr>
         `).join('');
     }
 
-    // Exportar a CSV
     document.getElementById('csvBtn').onclick = () => {
         const csv = "ID,Referencia,Contraseña\n" + 
             App.records.map(r => `${r.id},${r.reference},${r.password}`).join("\n");
@@ -134,7 +150,6 @@
         saveFile(blob, "usuarios_zkteco.csv");
     };
 
-    // Exportar a Excel (XLS)
     document.getElementById('xlsBtn').onclick = () => {
         let xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
@@ -151,10 +166,8 @@
         });
 
         xml += `</Table></Worksheet></Workbook>`;
-
         const blob = new Blob([xml], { type: 'application/vnd.ms-excel' });
         saveFile(blob, "usuarios_zkteco.xls");
-        log("Archivo Excel generado correctamente.");
     };
 
     function saveFile(blob, filename) {
